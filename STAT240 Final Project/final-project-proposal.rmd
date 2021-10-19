@@ -1,0 +1,55 @@
+---
+title: "Final Project Proposal"
+output: html_document
+author: "Boya Zeng, Spencer Schoenberg, Jing Zhang, Aaron Chen"
+---
+
+# Discussion 311 Group 4
+
+## Communication Plan: 
+- Zoom for meetings (weekly at 9pm CDT Saturday)
+- Google Drive and Canvas for file-sharing
+- GroupMe for daily communication
+
+
+## Questions
+1. What is the distribution of sum of rainfall in each year-month?
+1. What is the distribution of the daily temperature difference (max - min)?
+1. What is the relationship between rainfall, temperature, wind, and sunshine?
+
+## Data
+Rain in Australia from [jsphyg's kaggle](https://www.kaggle.com/jsphyg/weather-dataset-rattle-package)
+
+**Source & Acknowledgements**
+
+Observations were drawn from numerous weather stations. The daily observations are available from http://www.bom.gov.au/climate/data.
+
+An example of latest weather observations in Canberra: http://www.bom.gov.au/climate/dwo/IDCJDW2801.latest.shtml
+
+Definitions adapted from http://www.bom.gov.au/climate/dwo/IDCJDW0000.shtml
+
+Data source: http://www.bom.gov.au/climate/dwo/ and http://www.bom.gov.au/climate/data.
+
+Copyright Commonwealth of Australia 2010, Bureau of Meteorology.
+
+### Variables
+- Date: Date of the observation
+- Location: The common name of the location of the weather station
+- MinTemp: The minimum temperature in °C
+- MaxTemp: The maximum temperature in °C
+- Rainfall: The amount of rainfall recorded for the day in mm
+- Evoparation: The so-called Class A pan evaporation (mm) in the 24 hours to 9am
+- Sunshine: The number of hours of bright sunshine in the day.
+- WindGustDir: The direction of the strongest wind gust in the 24 hours to midnight
+- WindGustSpeed: The speed (km/h) of the strongest wind gust in the 24 hours to midnight
+- WindDir9am: Direction of the wind at 9am
+
+
+## Graph Types
+- Use sparse plots for the data points to explore the distributions and relationships between variables, we may also derive some curves to explore the relationship
+- Density plots for distribution exploration
+- Use the boxplot to show quantiles
+
+## Model Types and Inference
+- P-test Null Hypothesis Testing (for questions 1, 2)
+- Linear/Polynomial model fitting (for question 3)
