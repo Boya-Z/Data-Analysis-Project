@@ -1,0 +1,540 @@
+---
+title: "Environmental and Societal Factors Affecting Vaccine Adoption Rates"
+output: html_document
+author: "Boya Zeng, Spencer Schoenberg, Jing Zhang, Aaron Chen"
+---
+
+###  Discussion 311 Group 4
+
+```{r include=F}
+knitr::opts_chunk$set(echo=F,message=F,warning=F,include=T)
+library(tidyverse)
+library(lubridate)
+library(ggmap)
+library(modelr)
+library(mapproj)
+source("viridis.R")
+source("ggprob.R")
+```
+
+```{r}
+vaccine_county <- read_tsv("wi_vaccine_county.csv") %>%
+  mutate(across(ends_with("_p"), ~ as.numeric(str_remove(.x, "%"))/100)) %>%
+  mutate(county=str_remove(county, " County"))
+zip_county <- read_csv("wi_zip_county.csv") %>%
+  select(zip=starts_with("zip"), county=starts_with("county"))
+
+with_county <- function(x) {
+  return(
+    inner_join(x, zip_county, by="zip") %>%
+    group_by(county)
+    )
+}
+ur <- read_csv("wi_urban_rural.csv") %>%
+  select(zip=Id2, pop="Total:", urban="Urban:", rural="Rural")
+
+population <- ur %>% select(zip, pop)
+
+ur_county <- ur %>%
+  with_county %>%
+  summarize_at(vars(pop, urban, rural), sum)
+
+edu <- read_csv("wi_education.csv", na=c("(X)","-")) %>%
+  select(zip=Id2,
+         contains("high school graduate or higher"),
+         contains("bachelor's degree or higher")
+         ) %>%
+  rename(pct_m_hs = `Percent Males; Estimate; Percent high school graduate or higher`,
+         pct_f_hs = `Percent Females; Estimate; Percent high school graduate or higher`,
+         pct_m_bach = `Percent Males; Estimate; Percent bachelor's degree or higher`,
+         pct_f_bach = `Percent Females; Estimate; Percent bachelor's degree or higher`) %>%
+  select(-contains("Percent")) %>%
+  with_county %>%
+  left_join(population, by="zip") %>%
+  mutate_all(replace_na, 0) %>%
+  mutate(across(starts_with("pct"), ~ .x * pop / 100)) %>%
+  rename_with(~str_remove(.x, "pct_"), starts_with("pct")) %>%
+  summarize_at(vars(m_hs, f_hs, m_bach, f_bach, pop), ~ floor(sum(.x))) %>%
+  mutate(across(c(starts_with("m_"), starts_with("f_")), ~ .x / pop)) %>%
+  rename_with(~paste0("pct_", .x), c(starts_with("m_"), starts_with("f_")))
+
+```
+
+## Introduction
+
+During the research and distribution periods of the COVID-19 vaccines, social media-driven anti-vaccination campaigns have gained popularity, particularly among the Facebook^[[Facebook COVID-19 Information Center](https://www.facebook.com/coronavirus_info/)] and Instagram^[[Instagram COVID-19 Information Center](https://www.instagram.com/coronavirus_info/)] communities. We want to find whether there is a relationship between environmental and societal factors and vaccine adoption rates.
+
+We theorize that urban, educated, and older populations are more likely to have higher rates of vaccine adoption than those populations with a higher proportion of rural residents, less education, or lower median age.
+
+## Background
+
+#### Variables
+
+**Vaccine Data**
+
+-	`one_dose_at_least_p`: Percent people get at least one dose
+-	`completed_series`: People who completed the series
+-	`completed_series_p`: Percent people who completed the series
+
+**Urban and Rural Data**
+
+-	`population`: Total population of the county (All ages)
+- `urban`: Population living in an urban environment of the county
+- `rural`: Population living in a rural environment of the county
+
+**Education Data**
+
+-	`pct_m_hs`: Percent males estimated high school graduate or higher
+-	`pct_f_hs`: Percent females estimated high school graduate or higher
+-	`pct_m_bach`: Percent males estimated bachelor's degree or higher
+-	`pct_f_bach`: Percent females estimated Percent bachelor's degree or higher
+
+**Median Age data**
+
+- `median_age`: Median age in each county
+- `county`: County in Wisconsin
+
+**Note for Missing Data**: 
+
+- Although the education data is only for 25+, we estimate that the vaccination rate of those under 25 is insignificant and thus estimate the education population groups on the urban and rural population data.
+- There are some missing values in `wi_zip.csv`, `wi_income.csv`, `wi_age.csv`, but the proportion is statistically insignificant.
+
+#### Data Collection
+
+**Vaccine Data**
+
+Source: Wisconsin Department of Health Services & The Wisconsin Immunization Registry (WIR)^[[DHS Vaccine Data](https://www.dhs.wisconsin.gov/covid-19/vaccine-data.htm#residents)]
+
+Every night at 11:30 pm we extract vaccine administration data from WIR that will be reported on the DHS website by 2:00 pm the following day. WIR is a live system and providers are constantly sending immunization data. Therefore, data will look different if it is extracted at a different time of day.
+
+Vaccination administration: The cumulative number of COVID-19 vaccines administered. The Vaccine Distribution Summary includes all vaccine doses administered by Wisconsin vaccine providers. This includes doses administered to people who resided out-of-state, but who live, work, or study in Wisconsin and qualify for vaccination in-state. This provides information to track the allocation, distribution, and administration of vaccine by Wisconsin's vaccinators. The COVID-19 Vaccines for Wisconsin Residents dashboard displays data for Wisconsin recipients of the vaccine. This information is used to inform vaccination coverage for the state.
+
+Vaccine dose: One vaccine dose is one vaccine product (like a shot or a nasal spray). Some vaccines require two or more doses to protect you fully against a disease. Other vaccines give you enough protection to fight the disease after just one dose or shot.
+
+Series completion: Many vaccines require multiple doses spaced out by weeks, months, or years to provide the best protection against a disease. Once someone receives the recommended number of doses within the correct timeframe, their series is considered complete.
+
+**Urban/Rural, Income, and Education Data**
+
+These datasets are from previous class assignments, particularly Homework 6^[[Homework 6](https://canvas.wisc.edu/courses/244406/assignments/1160705)].
+
+**Zip Code and County Information**
+
+The data were from ZipCodesToGo, combined with Longitude/Latitude Coordinates for visual maps^[[ZipCodesToGo](https://www.zipcodestogo.com/Wisconsin/)].
+
+**Wisconsin Median Age**
+
+The data was from a local news report which was based on the U.S. Census Bureau^[[Madison.com](https://madison.com/wisconsin-median-age-by-county/html_518ee872-2577-58bd-b283-523eb4ab9abe.html)].
+
+#### Data Legitimacy, Trustworthiness, and Other Notes
+- `Vaccine Data` and `Wisconsin Median Age` are provided from WI Governmental agencies and are therefore fairly reputable.
+- We gathered much of the data, particular county demographics, from the homework, which prior was gathered from reliable sources.
+- Zip Code Information is readily available and is not subject to interpretation.
+- Median Age is originally sourced through the U.S. Census, which could have some underlying patterns, but is also fairly reputable.
+- The data of education and income are from the assignment, so they may not be as reflective of today's data as the vaccination data.
+
+#### Backgroud description & relation to topic
+
+People with different levels of education may have different understandings of vaccines. One theory is that populations with limited education may think of vaccines, especially newly developed vaccines as particularly harmful or not well-studied; whereas, populations with more education might better understand the rigorous safety standards and trials the vaccine has been scrutinized by.
+
+Concerning the urbanization of the environment, differences in residential densities could affect accessibility and/or the speed of distribution.
+
+At the end of the study, we will have a better understanding of the demographic of vaccine recipients.
+
+## Analysis
+
+### Vaccination Visualization Across WI
+
+#### Urbanization Rate
+
+```{r}
+wi_zip_latitude <- read_csv("wi_zip.csv")
+vaccine_county_zip <- vaccine_county %>%
+  left_join(zip_county, by="county") %>%
+  left_join(wi_zip_latitude, by="zip") %>%
+  drop_na()
+
+wi <- map_data('state',region='wisconsin')
+vaccine_edu <- vaccine_county %>%
+  inner_join(edu, by="county")
+```
+
+```{r}
+ur_county %>%
+  group_by(county) %>%
+  summarize(rural_pct = sum(rural)/sum(pop),
+            urban_pct = sum(urban)/sum(pop)) %>%
+  left_join(vaccine_county_zip, by="county") %>%
+  drop_na() %>%
+ggplot(aes(longitude, latitude)) +
+  geom_point(aes(color=100*one_dose_at_least_p,
+                 size=100*urban_pct),
+                 alpha=0.5) +
+  scale_color_viridis_c() +
+  scale_size_continuous() +
+  labs(title="Percent 1+ Dose vs Percent Urban",
+       subtitle="For WI by Zip Code",
+       color="Percent 1+ Dose",
+       size="Percent Urban") +
+  theme_void() +
+  geom_polygon(data=wi,
+               aes(long,lat),
+               fill="000",
+               color="black") +
+  coord_map() +
+  geom_point(mapping=aes(x=-89.4,y=43.07),
+             fill="white",
+             color="darkred",
+             size=2)
+```
+
+Note: The red dot we marked is the position of the capital Madison.
+
+Places that are more urbanized such as Madison, Milwaukee, and Green Bay, tend to have a higher rate of vaccinations.
+
+Among the urban cities, Madison has the lightest color, which means the vaccination rate in Madison is the highest. One possible reason to account for this is that the campus of the University of Wisconsin-Madison is at Madison, therefore, the education level of people there is also higher. Thus, the vaccination rate there would be higher.
+
+Interestingly, there are smaller counties with less urbanization rate (e.g. Door and Bayfield, which are small yellow dots in the graph) that are particularly highly vaccinated versus other, larger counties, so there might be other factors responsible for such a relative vaccination rate.
+
+#### Level of Education
+
+```{r}
+vaccine_edu_zip <- vaccine_edu %>%
+  left_join(zip_county, by="county") %>%
+  left_join(wi_zip_latitude, by="zip")
+
+vaccine_edu_zip %>%
+ggplot(aes(longitude, latitude)) +
+  geom_point(aes(color=100*one_dose_at_least_p,
+                 size=100*(pct_m_bach+pct_f_bach)/2),
+                 alpha=0.5) +
+  scale_color_viridis_c() +
+  scale_size_continuous() +
+  labs(title="Percent 1+ Dose vs Percent Bachelor's Degree or Higher",
+       subtitle="For WI by Zip Code",
+       color="Percent 1+ Dose",
+       size="Percent Bachelor's Degree or Higher") +
+  theme_void() +
+  geom_polygon(data=wi,
+               aes(long,lat),
+               fill="000",
+               color="black") +
+  coord_map() +
+  geom_point(mapping=aes(x=-89.4,y=43.07),
+             fill="white",
+             color="darkred",
+             size=2)
+```
+
+Places that are more urbanized tend to have a higher level of education.
+
+Among communities with a higher mean education level, the vaccination rate tends to be higher. This can also explain why the places like Sister Bay and Moquah (in the East and North respectively) are with high vaccination rate, despite being in rural counties.
+
+
+#### Age 
+
+As we analyzed the data between vaccination rate and urban percent, education level, we found out that some of the locations may have a conflict with our assertion. 
+
+Places such as Door and Bayfield have an abnormally high vaccination rate where their education level and percent urban are not as high as big cities. We recognized that different counties have different age group distribution. 
+
+Especially, for Door and Bayfield, there are a particularly high number of retired people. We made an inference that the high average age in these counties could be correlated in a meaningful way to the high relative vaccination rate.
+
+```{r}
+wi_age <- read.csv("wi_age.csv")
+
+ur_county %>%
+  group_by(county) %>%
+  summarize(rural_pct = sum(rural)/sum(pop),
+            urban_pct = sum(urban)/sum(pop)) %>%
+  left_join(vaccine_county_zip, by="county") %>%
+  left_join(wi_age, by="county") %>%
+  drop_na() %>%
+  select(county, latitude, longitude, median_age, one_dose_at_least_p) %>%
+  ggplot(aes(longitude, latitude)) + 
+  geom_point(aes(color= median_age, size = 100*one_dose_at_least_p),
+              alpha=0.5) +
+  theme_void() +
+  geom_polygon(data=wi,
+               aes(long,lat),
+               fill="000",
+               color="black") +
+  labs(title="Percent 1+ Dose vs Median Age",
+       subtitle="For WI by Zip Code",
+       color="Median Age",
+       size="Percent 1+ Dose") +
+  coord_map()
+```
+
+From the graph, these counties show higher median ages than other counties As we did a further investigation, we found out that the government's policy of distribution vaccine has relation with the age. According to the CDC's COVID-19 Vaccine Rollout Recommendations, there are three phases of distributing vaccines. The second phase who are eligible to get the vaccine are people aged 75 years and older where the time that the data was collected. This might be a direct reason why these places have an abnormally high vaccination rate.
+
+> Places that are _more urbanized_ tend to have a higher rate of vaccinations. Among communities with a _higher mean education level_, the vaccination rate tends to be higher. Places with _more elderly people_ tend to have higher vaccination rates.
+
+### Education Level and Vaccination
+
+```{r, fig.height=3}
+vaccine_edu %>%
+  ggplot(aes(y=one_dose_at_least_p)) +
+  geom_point(aes(pct_m_hs, color="Male")) +
+  geom_smooth(aes(pct_m_hs, color="Male"),
+              method="lm", se=F) +
+  geom_point(aes(pct_f_hs, color="Female")) +
+  geom_smooth(aes(pct_f_hs, color="Female"),
+              method="lm", se=F) +
+  scale_color_discrete() +
+  labs(title="Vaccination Rate vs Prop. High School Graduate or Higher",
+       y="Proportion 1+ Dose",
+       x="Proportion of Education",
+       color="Gender")
+
+vaccine_edu %>%
+  ggplot(aes(y=one_dose_at_least_p)) +
+  geom_point(aes(pct_m_bach, color="Male")) +
+  geom_smooth(aes(pct_m_bach, color="Male"),
+              method="lm", se=F) +
+  geom_point(aes(pct_f_bach, color="Female")) +
+  geom_smooth(aes(pct_f_bach, color="Female"),
+              method="lm", se=F) +
+  scale_color_discrete() +
+  labs(title="Vaccination Rate vs Prop. Bachelor's Degree or Higher",
+       y="Proportion 1+ Dose",
+       x="Proportion of Education",
+       color="Gender")
+```
+
+In the above graph, we performed a regression on how the vaccine rate and education level are correlated with each other. For both genders and both education levels, it seems that there is a strong and positive linear relationship.
+
+We will then do a residual plot to prove whether this correlation is statistically significant.
+
+#### Residual Analysis
+
+```{r, fig.height=3}
+# m_hs_lm = lm(one_dose_at_least_p ~ pct_m_hs, data=vaccine_edu)
+# f_hs_lm = lm(one_dose_at_least_p ~ pct_f_hs, data=vaccine_edu)
+# m_bach_lm = lm(one_dose_at_least_p ~ pct_m_bach, data=vaccine_edu)
+# f_bach_lm = lm(one_dose_at_least_p ~ pct_f_bach, data=vaccine_edu)
+
+create_res_plot <- function(col, name) {
+  model = lm(one_dose_at_least_p ~ col, data=vaccine_edu)
+  g <- geom_point(fortify(model), mapping=aes(col, .resid, color=name))
+  return(g)
+}
+
+ggplot() +
+  geom_hline(yintercept=0, color="black", linetype="dashed") +
+  create_res_plot(vaccine_edu$pct_m_hs, "Male") +
+  create_res_plot(vaccine_edu$pct_f_hs, "Female") +
+  scale_color_discrete() + 
+  labs(title="Residual Plot for 1+ Dose vs Prop. High School Graduate or Higher",
+       subtitle="Of Linear Models by Gender for WI by Zip Code",
+       y="Residual Proportion",
+       x="Proportion High School Graduate or Higher",
+       color="Gender"
+  )
+
+
+ggplot() +
+  geom_hline(yintercept=0, color="black", linetype="dashed") +
+  create_res_plot(vaccine_edu$pct_m_bach, "Male") +
+  create_res_plot(vaccine_edu$pct_f_bach, "Female") +
+  scale_color_discrete() + 
+  labs(title="Residual Plot for 1+ Dose vs Prop. Bachelor's Degree or Higher",
+       subtitle="Of Linear Models by Gender for WI by Zip Code",
+       y="Residual Proportion",
+       x="Proportion Bachelor's Degree or Higher",
+       color="Gender"
+  )
+```
+
+We see no obvious patterns from the residual plots, as the points are distributed uniformly at random. 
+
+<!-- This gives us confidence in testing our slope against the null hypothesis of no slope, or in context, indicating no relationship between education and vaccine adoption rates. -->
+
+
+In the above graph, we performed a regression on how the vaccine rate and education level are correlated with each other. For both genders, it seems that there is a strong and positive linear relationship.
+
+```{r}
+m_bach_one_dose = lm(one_dose_at_least_p ~ pct_m_bach, data=vaccine_edu)
+# summary(m_bach_one_dose)
+```
+
+For the linear model of `one_dose_at_least_p` on `pct_m_bach`, the estimated intercept is 0.25646 and the estimated slope is 0.36844, and the p-value of each test is extremely small, suggesting these estimates are statistically significant.
+
+```{r}
+f_bach_one_dose = lm(one_dose_at_least_p ~ pct_f_bach, data=vaccine_edu)
+# summary(f_bach_one_dose)
+```
+
+For the linear model of `one_dose_at_least_p` on `pct_f_bach`, the estimated intercept is 0.23749 and the estimated slope is 0.23749, and the p-value of each test is extremely small, suggesting these estimates are extremely statistically significant.
+
+> There is a statistically significant linear relationship between education rate and vaccination rates by county.
+
+### Income and Education Level
+
+```{r, fig.height=3}
+income_county <- read_csv("wi_income.csv") %>%
+  inner_join(zip_county, by="zip")
+
+income_edu <- inner_join(income_county, edu, by="county") %>%
+  select(-households, -pop) %>%
+  drop_na()
+
+income_edu %>%
+  ggplot(aes(y=income)) +
+  geom_point(aes(pct_m_hs, color="Male"),
+             alpha=0.3,
+             position=position_jitter()) +
+  geom_point(aes(pct_f_hs, color="Female"),
+             alpha=0.3,
+             position=position_jitter()) +
+  geom_smooth(aes(pct_m_hs, color="Male"),
+              method="lm", se=F) +
+  geom_smooth(aes(pct_f_hs, color="Female"),
+              method="lm", se=F) +
+  scale_color_discrete() +
+  labs(title="Income vs Prop. High School Graduate or Higher",
+       subtitle="by Gender for WI by Zip Code",
+       y="Income (USD)",
+       x="Proportion High School Graduate or Higher",
+       color="Gender"
+  )
+
+income_edu %>%
+  ggplot(aes(y=income)) +
+  geom_point(aes(pct_m_bach, color="Male"),
+             alpha=0.3,
+             position=position_jitter()) +
+  geom_point(aes(pct_f_bach, color="Female"),
+             alpha=0.3,
+             position=position_jitter()) +
+  geom_smooth(aes(pct_m_bach, color="Male"),
+              method="lm", se=F) +
+  geom_smooth(aes(pct_f_bach, color="Female"),
+              method="lm", se=F) +
+  scale_color_discrete() +
+  labs(title="Income vs Prop. Bachelor's Degree or Higher",
+       subtitle="by Gender for WI by Zip Code",
+       y="Income (USD)",
+       x="Proportion Bachelor's Degree or Higher",
+       color="Gender"
+  )
+
+```
+
+The two graphs above show that with a higher average education level, populations tend to have a higher average income.
+
+Thus, we can form an indirect relationship between higher levels of vaccine adoption rate and higher levels of income.
+
+Interestingly, although the explicit cost of the vaccine is nothing, there is an implicit time cost that could affect households in more essential or time-based jobs, or those households are deterred by longer wait times.
+
+In the following part, we would do a test to verify there is a positive correlation between these two factors. 
+
+The following is the plot:
+
+```{r}
+income_edu_v <- left_join(income_edu, vaccine_county_zip, by="zip") %>%
+  drop_na()
+
+income_edu_v %>% 
+ggplot(aes(income, one_dose_at_least_p)) +
+  geom_point(alpha=0.3, position="jitter") +
+  geom_smooth(color="blue", method="lm", se=F) +
+  labs(title="Vaccination Rate vs Income",
+     subtitle="by Zip Code",
+     y="Proportion 1+ Dose",
+     x="Income (USD)"
+  )
+```
+
+```{r}
+create_res_plot <- function(col) {
+  model = lm(one_dose_at_least_p ~ col, data=income_edu_v)
+  g <- geom_point(fortify(model), mapping=aes(col, .resid))
+  return(g)
+}
+
+ggplot() +
+  geom_hline(yintercept=0, color="blue", linetype="dashed") +
+  create_res_plot(income_edu_v$income) +
+  scale_color_discrete() + 
+  labs(title="Residual Plot for 1+ Dose vs Income",
+       subtitle="Of Linear Models for WI by Zip Code",
+       y="Residual Proportion",
+       x="Income (USD)"
+  )
+
+```
+
+There are some patterns in the data suggesting a linear model is perhaps not the most appropriate. Particularly, the residuals < \$30,000 tend to be positive. Additionally, there is a large clustering where the normal distribution of income is strongest (~\$45,000-\$55,000). We will, however, continue with the fairly reasonable linear model.
+
+```{r}
+# income_v = lm(one_dose_at_least_p ~ income, data=income_edu_v)
+
+res <- cor.test(income_edu_v$one_dose_at_least_p, income_edu_v$income, 
+                    method = "pearson")
+# res
+```
+The p-value of a Pearson's product-moment test for correlation between `one_dose_at_least_p` and `income` is 1.168e-06, which is less than the significance level alpha of 0.05. We can conclude that vaccination rate and income are significantly correlated with a correlation coefficient of 0.178525.
+
+### Normality of Vaccine Distribution Proportions
+
+```{r, fig.height=3}
+vaccine_county %>%
+  ggplot(aes(one_dose_at_least_p)) +
+  geom_norm_density(mean(vaccine_county$one_dose_at_least_p), sd(vaccine_county$one_dose_at_least_p)) +
+  geom_density() + 
+  labs(title="Distribution of 1+ Vaccine Dose",
+       subtitle="For WI by County",
+       y="Propotional Density",
+       x="Proportion of County with 1+ Dose"
+  )
+
+vaccine_county %>%
+  ggplot(aes(completed_series_p)) +
+  geom_norm_density(mean(vaccine_county$completed_series_p), sd(vaccine_county$completed_series_p)) +
+  geom_density() + 
+  labs(title="Distribution of Completed Vaccine Series",
+       subtitle="For WI by County",
+       y="Propotional Density",
+       x="Proportion of County with  Completed Series"
+  )
+```
+
+As an aside, we can observe that the distributions of the dose distribution proportions across zip codes are approximately normal, giving us greater confidence in our p-values.
+
+## Discussion
+
+#### Broader interpretations of analysis
+
+A possible explanation for the positive correlation for urban environments could stem from people not having to travel as far to receive the vaccine due to the population density being higher.
+
+A possible explanation for the positive correlation for income could stem from people having a better understanding of vaccines and discern misinformation about the inefficacy or risks associated with vaccines.
+
+A possible explanation surrounding age is the general roll-out strategy of the state for more elderly and at-risk populations to first receive the vaccine, as well as those populations having more of a risk if they are not vaccinated.
+
+#### Potential shortcoming
+
+- The WI datasets may not be fully representative of all cases nationally or globally.
+- Linear models of two variables are simplistic and do not offer the most holistic study review analysis.
+- Vaccination rate data is not fully complete and are only point estimates at the time of data retrieval, instead of time-based data.
+
+#### Remedies and Related Issues
+
+- General misinformation and algorithmic virality lead to swift and rampant informational crises. 
+- Because social media platforms are private companies, they have legally enforced some censorship and banners or warnings of possible misinformation.
+- Indifferent algorithms responsible for spreading content on the platforms that are continually being weaponized are ripe for change or regulation. 
+
+#### Potential future directions for additional work
+
+- Since the vaccination process is still in progress, we can wait for a few months and redo the study. Try to prove that what we did is correct.
+- As we only researched in Wisconsin, it might not be true for other places in the world. We can collect more data from other places to verify our conclusion.
+
+#### Primary conclusions and the primary evidence
+
+From the beginning of the pandemic in early 2020, our lives have been meaningfully interrupted and negatively impacted. With CDC guidance to curb spread by widespread vaccination and ultimately herd immunity, we seek to analyze the effects of demographic factors on populations' willingness and attitude toward a COVID vaccine.  Despite the government providing low or no-cost vaccines in Wisconsin, we still observe some citizens rejecting getting vaccinated because of associated doubts of the effectiveness of and fears associated with a COVID vaccine. 
+
+**We have found a meaningful positive correlation between higher levels of education and vaccine adoption rates as well as higher income levels and vaccine adoption rates.**
+
+#### Further Thoughts and Broader Implications
+
+The research leads us to ponder whether the effect of people's awareness of the benefits of vaccines would translate to a higher willingness to get vaccinated. We also ponder the correlation between the perceived efficacy of the vaccine and the vaccination rate.
+
+#### References
